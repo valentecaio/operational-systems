@@ -6,23 +6,12 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdio.h>
+#include "fifo.h"
 
-typedef struct node {
-  struct node *next;
-  int data;
-} Node;
-
-typedef struct {
-  Node *first;
-  Node *last;
-} Fifo;
-
-// returns an empty fifo queue
 Fifo fifo_create() {
   return (Fifo) {NULL, NULL};
 }
 
-// is the queue empty?
 int fifo_empty(Fifo *f) {
   return f->first == NULL ? 1 : 0;
 }
@@ -40,7 +29,6 @@ void fifo_print(Fifo *f) {
   }
 }
 
-// add an element to the end of the queue
 void fifo_put(Fifo *f, int value) {
   // create new fifo node
   Node* new = (Node*) malloc(sizeof(Node));
@@ -57,8 +45,7 @@ void fifo_put(Fifo *f, int value) {
   f->last = new;
 }
 
-// remove and return the first element of the queue
-// returns -1 if the queue is empty
+
 int fifo_take(Fifo *f) {
   if(fifo_empty(f)) {
     // impossible to take data from an empty queue
@@ -72,7 +59,6 @@ int fifo_take(Fifo *f) {
   return temp.data;
 }
 
-// free all nodes from the queue
 void fifo_free(Fifo *f) {
   while(fifo_take(&f) != -1);
 }
@@ -99,4 +85,3 @@ void fifo_test() {
     printf("\n");
   }
 }
-

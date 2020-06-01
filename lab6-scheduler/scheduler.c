@@ -1,5 +1,5 @@
 /*
-  gcc -pthread scheduler.c -o scheduler; ./scheduler
+  gcc -pthread scheduler.c fifo.c -o scheduler; ./scheduler
 */
 
 #include <stdio.h>
@@ -11,7 +11,7 @@
 
 #include <sys/time.h>                 // gettimeofday
 #include <pthread.h>                  // pthread, pthread_create
-#include "fifo.c"
+#include "fifo.h"
 
 #define PIPE_PATH "./lab7-pipe.fifo"  // FIFO file path
 #define INPUT_PATH "./input.txt"      // input of interpreter
