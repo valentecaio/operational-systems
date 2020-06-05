@@ -62,17 +62,6 @@ void print_processes() {
 
 
 
-void child_main(int fid, char* prog) {
-  // wait for a SIGCONT signal to start
-  printf("[child {%d, '%s'}] created and STOPPED.\n", fid, prog);
-  kill(getpid(), SIGSTOP);
-
-  printf("[child {%d, '%s'}] SIGCONT received. Launching exec()\n", fid, prog);
-  char *args[] = {prog, NULL};
-  execv(args[0], args);
-}
-
-
 /***** pipe handlers *****/
 
 // this thread handles interpreter input (create new processes)
@@ -90,7 +79,9 @@ void *t_pipe_input_main(void *arg) {
 
     // create child process for this program
     if((pid=fork()) == 0) {
-      child_main(next_fid, program_name);
+      char *args[] = {program_name, NULL};
+      printf("[child {%d, '%s'}] created. Launching exec()\n", next_fid, program_name);
+      execv(args[0], args);
       return NULL;
     }
 
@@ -138,7 +129,7 @@ int main() {
   mkfifo(PIPE_IO_START, 0666);
   mkfifo(PIPE_IO_END, 0666);
 
-  // start pipe threads
+  // start thread for handling input from interpreter
   pthread_create(&t_pipe_input, NULL, t_pipe_input_main, NULL);
 
   while(1) {
@@ -166,7 +157,7 @@ int main() {
 
     // run process for quantum time
     quantum = 1000000 * QUANTUM_BASE * p->priority;
-    kill(p->pid, SIGCONT);
+    kill(p->pid, SIGUSR2);
     gettimeofday(&tv1, NULL);
     do {
       gettimeofday(&tv2, NULL);
@@ -175,7 +166,7 @@ int main() {
 
     // stop process
     printf("[main] %d achieved the quantum. Stopping it.\n", fid);
-    kill(p->pid, SIGSTOP);
+    kill(p->pid, SIGUSR1);
 
     // reduce priority and put process in a lower level queue
     if(p->priority == 1) {

@@ -3,11 +3,11 @@
 */
 
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #define PIPE_INPUT "./new-process.pipe" // named pipe for creating new processes
 #define INPUT_PATH "./input.txt"        // input of interpreter
