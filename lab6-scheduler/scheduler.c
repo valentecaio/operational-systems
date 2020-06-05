@@ -1,22 +1,27 @@
 /*
-  gcc -pthread scheduler.c fifo.c -o scheduler; ./scheduler
+  gcc scheduler.c fifo.c -pthread -o scheduler; ./scheduler
 */
 
 #include <stdio.h>
+#include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
+#include <sys/time.h>     // gettimeofday
+#include <pthread.h>      // pthread, pthread_create
+#include <sys/time.h>     // gettimeofday
+#include <signal.h>       // signal, kill
 
-#include <sys/time.h>                 // gettimeofday
-#include <pthread.h>                  // pthread, pthread_create
 #include "fifo.h"
 
-#define PIPE_PATH "./lab7-pipe.fifo"  // FIFO file path
-#define INPUT_PATH "./input.txt"      // input of interpreter
-#define BUF_SIZE 255                  // max size of string buffers
-#define MAX_PROCS 50                  // max number of process this scheduler can handle
+#define PIPE_INPUT    "./new-process.pipe"  // named pipe for incoming new processes
+#define PIPE_IO_START "./io-start.pipe"     // named pipe to start IO operation
+#define PIPE_IO_END   "./io-end.pipe"       // named pipe to end IO operation
+
+#define BUF_SIZE 255    // max size of string buffers
+#define MAX_PROCS 50    // max number of process this scheduler can handle
+#define QUANTUM_BASE 2  // in seconds
 
 typedef enum {
 	STATE_READY,
@@ -24,64 +29,162 @@ typedef enum {
 } ProcState;
 
 typedef struct {
-  int id;
-  char exec_path[BUF_SIZE];
+  int fid;              // "FIFO id" = id of this process in the fifo queues
+  int pid;              // unix pid
+  int priority;         // 1 for fifo_f1, 2 for fifo_f2, 4 for fifo_f3
+  char prog[BUF_SIZE];  // path of the file containing the code this process may run
   ProcState state;
 } Process;
 
-/***** global variables *****/
+
+/***** scheduler state *****/
 
 static int n_of_processes = 0;
-static Process processes[MAX_PROCS];
+Process processes[MAX_PROCS];           // the index here is the p.fid
 static Fifo fifo_f1, fifo_f2, fifo_f3;
 
-void *thread_pipe_main(void *arg) {
-  int pipe_fd;
+
+
+void print_proc(Process *p) {
+  printf("  {fid: %d, pid: %d, prog: %s, priority: %d, state: %s},\n",
+        p->fid, p->pid, p->prog, p->priority,
+        (p->state==STATE_READY) ? "READY" : "WAITING");
+}
+
+// not thread-safe, used in tests
+void print_processes() {
+  printf("Processes = [\n");
+  for(int i=0; i < n_of_processes; i++) {
+    print_proc(&processes[i]);
+  }
+  printf("]\n");
+}
+
+
+
+void child_main(int fid, char* prog) {
+  // wait for a SIGCONT signal to start
+  printf("[child {%d, '%s'}] created and STOPPED.\n", fid, prog);
+  kill(getpid(), SIGSTOP);
+
+  printf("[child {%d, '%s'}] SIGCONT received. Launching exec()\n", fid, prog);
+  char *args[] = {prog, NULL};
+  execv(args[0], args);
+}
+
+
+/***** pipe handlers *****/
+
+// this thread handles interpreter input (create new processes)
+void *t_pipe_input_main(void *arg) {
+  int pipe_fd, pid, next_fid;
   char program_name[BUF_SIZE];
 
-  printf("[pipe thread] started thread\n");
+  printf("[thread pipe input] started thread\n");
   while(1) {
-    pipe_fd = open(PIPE_PATH, O_RDONLY);
+    pipe_fd = open(PIPE_INPUT, O_RDONLY);
     read(pipe_fd, program_name, BUF_SIZE);
+
+    next_fid = n_of_processes;
+    n_of_processes++;
+
+    // create child process for this program
+    if((pid=fork()) == 0) {
+      child_main(next_fid, program_name);
+      return NULL;
+    }
+
+    /*** only the parent (scheduler) gets here ***/
 
     // create new process data
     Process new_proc;
-    new_proc.id = n_of_processes;
-    strcpy(new_proc.exec_path, program_name);
+    new_proc.pid = pid;
+    new_proc.fid = next_fid;
+    new_proc.priority = 1;
     new_proc.state = STATE_READY;
+    strcpy(new_proc.prog, program_name);
 
-    // add process to the state of scheduler
-    processes[n_of_processes] = new_proc;
-    fifo_put(&fifo_f1, new_proc.id);
-    n_of_processes++;
+    // add process data to the state of scheduler
+    processes[next_fid] = new_proc;
+    fifo_put(&fifo_f1, new_proc.fid);
 
-    // print new queue
-    printf("[pipe thread] read from the pipe: '%s'\n", program_name);
-    printf("[pipe thread] new queue = ");
+    // print new state
+    printf("[thread pipe input] new queue = ");
     fifo_print(&fifo_f1);
     printf("\n");
-  
+
+    print_processes();
+
     close(pipe_fd);
   }
   return NULL;
 }
 
+
 int main() {
-  int fd1;
-  pthread_t thread_pipe;
+  int fid, quantum;
+  pthread_t t_pipe_input;
+  struct timeval tv1, tv2;
+  double runtime;
+  Process *p;
 
   // init global vars
   fifo_f1 = fifo_create();
   fifo_f2 = fifo_create();
   fifo_f3 = fifo_create();
 
-  // start thread to handle interpreter inputs
-  pthread_create(&thread_pipe, NULL, thread_pipe_main, NULL);
+  // create named pipes (FIFO)
+  mkfifo(PIPE_INPUT, 0666);
+  mkfifo(PIPE_IO_START, 0666);
+  mkfifo(PIPE_IO_END, 0666);
+
+  // start pipe threads
+  pthread_create(&t_pipe_input, NULL, t_pipe_input_main, NULL);
 
   while(1) {
-    sleep(1);
-    int handle = fifo_take(&fifo_f1);
-    printf("took from queue: %d\n", handle);
+    // get next process to run
+    fid = fifo_take(&fifo_f1);
+    printf("[main] took from fifo_f1: %d\n", fid);
+    if(fid < 0) {
+      // f1 empty: try f2
+      fid = fifo_take(&fifo_f2);
+      printf("[main] took from fifo_f2: %d\n", fid);
+      if(fid < 0) {
+        // f2 empty: try f3
+        fid = fifo_take(&fifo_f3);
+        printf("[main] took from fifo_f3: %d\n", fid);
+        if(fid < 0) {
+          // all queues are empty: wait and retry
+          sleep(1);
+          continue;
+        }
+      }
+    }
+    p = &processes[fid];
+    printf("[main] next process to run:");
+    print_proc(p);
+
+    // run process for quantum time
+    quantum = 1000000 * QUANTUM_BASE * p->priority;
+    kill(p->pid, SIGCONT);
+    gettimeofday(&tv1, NULL);
+    do {
+      gettimeofday(&tv2, NULL);
+      runtime = (double) (tv2.tv_usec - tv1.tv_usec) + (double) 1000000*(tv2.tv_sec - tv1.tv_sec);
+    } while(runtime < quantum);
+
+    // stop process
+    printf("[main] %d achieved the quantum. Stopping it.\n", fid);
+    kill(p->pid, SIGSTOP);
+
+    // reduce priority and put process in a lower level queue
+    if(p->priority == 1) {
+      p->priority = 2;
+      fifo_put(&fifo_f2, fid);
+    } else {
+      p->priority = 4;
+      fifo_put(&fifo_f3, fid);
+    }
   }
 
   return 0;

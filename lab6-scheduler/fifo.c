@@ -60,7 +60,7 @@ int fifo_take(Fifo *f) {
 }
 
 void fifo_free(Fifo *f) {
-  while(fifo_take(&f) != -1);
+  while(fifo_take(f) != -1);
 }
 
 // used to test

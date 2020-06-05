@@ -9,7 +9,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define PIPE_PATH "./lab7-pipe.fifo"    // FIFO file path
+#define PIPE_INPUT "./new-process.pipe" // named pipe for creating new processes
 #define INPUT_PATH "./input.txt"        // input of interpreter
 #define BUF_SIZE 255                    // max size of string buffers
 
@@ -26,7 +26,7 @@ int main() {
   // handle input file line by line
   input_fp = fopen(INPUT_PATH, "r");
   while(fgets(line_buffer, BUF_SIZE, input_fp)) {
-    pipe_fd = open(PIPE_PATH, O_WRONLY);
+    pipe_fd = open(PIPE_INPUT, O_WRONLY);
 
     // we don't need the \n in the end
     strtok(line_buffer, "\n");
