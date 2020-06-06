@@ -16,9 +16,7 @@
 
 #include "fifo.h"
 
-#define PIPE_INPUT    "./new-process.pipe"  // named pipe for incoming new processes
-#define PIPE_IO_START "./io-start.pipe"     // named pipe to start IO operation
-#define PIPE_IO_END   "./io-end.pipe"       // named pipe to end IO operation
+#define PIPE_INPUT "./new-process.pipe"   // named pipe for incoming new processes
 
 #define BUF_SIZE 255    // max size of string buffers
 #define MAX_PROCS 50    // max number of process this scheduler can handle
@@ -138,9 +136,14 @@ void *t_pipe_input_main(void *arg) {
   char program_name[BUF_SIZE];
 
   printf("[PIPE THREAD] started thread\n");
+
+  // create named pipe (FIFO)
+  mkfifo(PIPE_INPUT, 0666);
+
   while(1) {
     pipe_fd = open(PIPE_INPUT, O_RDONLY);
     read(pipe_fd, program_name, BUF_SIZE);
+    close(pipe_fd);
 
     next_fid = n_of_processes;
     n_of_processes++;
@@ -165,14 +168,12 @@ void *t_pipe_input_main(void *arg) {
     processes[next_fid] = new_proc;
     fifo_put(&fifo_f1, next_fid);
 
+    // print new state
     printf("[PIPE THREAD] Created new process:");
     print_proc(&processes[next_fid]);
 
-    // print new state
-    print_fifos();
     print_processes();
-
-    close(pipe_fd);
+    print_fifos();
   }
   return NULL;
 }

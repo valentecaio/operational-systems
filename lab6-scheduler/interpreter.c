@@ -23,11 +23,12 @@ int main() {
   char line_buffer[BUF_SIZE];
   FILE* input_fp;
 
+  // create named pipe (FIFO)
+  mkfifo(PIPE_INPUT, 0666);
+
   // handle input file line by line
   input_fp = fopen(INPUT_PATH, "r");
   while(fgets(line_buffer, BUF_SIZE, input_fp)) {
-    pipe_fd = open(PIPE_INPUT, O_WRONLY);
-
     // we don't need the \n in the end
     strtok(line_buffer, "\n");
     printf("read: '%s' from the file\n", line_buffer);
@@ -48,10 +49,10 @@ int main() {
     }
 
     // send each valid program to scheduler
+    pipe_fd = open(PIPE_INPUT, O_WRONLY);
     write(pipe_fd, program_name, strlen(program_name)+1);
-    printf("wrote '%s' to the pipe\n", program_name);
-
     close(pipe_fd);
+    printf("wrote '%s' to the pipe\n", program_name);
   }
 
   fclose(input_fp);
