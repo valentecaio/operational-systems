@@ -56,6 +56,43 @@ void print_processes() {
   printf("]\n");
 }
 
+// not thread safe
+void print_fifos() {
+  printf("FIFO F1 = ");
+  fifo_print(&fifo_f1);
+  printf("\nFIFO F2 = ");
+  fifo_print(&fifo_f2);
+  printf("\nFIFO F3 = ");
+  fifo_print(&fifo_f3);
+  printf("\n");
+}
+
+// get the higher priority process of all 3 queues
+int dequeue() {
+  // try to get from fifo f1
+  int fid = fifo_take(&fifo_f1);
+  if(fid < 0) {
+    // f1 empty: try f2
+    fid = fifo_take(&fifo_f2);
+    if(fid < 0) {
+      // f2 empty: try f3
+      fid = fifo_take(&fifo_f3);
+    }
+  }
+  return fid;
+}
+
+// put process in a queue, according to its current priority
+int enqueue(Process *p) {
+  if(p->priority == 1) {
+    fifo_put(&fifo_f1, p->fid);
+  } else if(p->priority == 2) {
+    fifo_put(&fifo_f2, p->fid);
+  } else {
+    fifo_put(&fifo_f3, p->fid);
+  }
+}
+
 
 
 /***** signal handlers *****/
@@ -88,11 +125,7 @@ void sigusr2_handler(int signo, siginfo_t *si, void *data) {
   // process unblocked -> add it to the right queue
   printf("[SCHEDULER] [SIGUSR2] process unblocked:");
   print_proc(&processes[fid]);
-  if(processes[fid].priority == 1) {
-    fifo_put(&fifo_f1, fid);
-  } else {
-    fifo_put(&fifo_f2, fid);
-  }
+  enqueue(&processes[fid]);
 }
 
 
@@ -104,7 +137,7 @@ void *t_pipe_input_main(void *arg) {
   int pipe_fd, pid, next_fid;
   char program_name[BUF_SIZE];
 
-  printf("[thread pipe input] started thread\n");
+  printf("[PIPE THREAD] started thread\n");
   while(1) {
     pipe_fd = open(PIPE_INPUT, O_RDONLY);
     read(pipe_fd, program_name, BUF_SIZE);
@@ -115,7 +148,6 @@ void *t_pipe_input_main(void *arg) {
     // create child process for this program
     if((pid=fork()) == 0) {
       char *args[] = {program_name, NULL};
-      printf("[child {%d, '%s'}] created. Launching exec()\n", next_fid, program_name);
       execv(args[0], args);
       return NULL;
     }
@@ -131,13 +163,13 @@ void *t_pipe_input_main(void *arg) {
 
     // add process data to the state of scheduler
     processes[next_fid] = new_proc;
-    fifo_put(&fifo_f1, new_proc.fid);
+    fifo_put(&fifo_f1, next_fid);
+
+    printf("[PIPE THREAD] Created new process:");
+    print_proc(&processes[next_fid]);
 
     // print new state
-    printf("[thread pipe input] new queue = ");
-    fifo_print(&fifo_f1);
-    printf("\n");
-
+    print_fifos();
     print_processes();
 
     close(pipe_fd);
@@ -181,25 +213,17 @@ int main() {
   pthread_create(&t_pipe_input, NULL, t_pipe_input_main, NULL);
 
   while(1) {
+    sleep(1);
+    printf("\n");
+    print_fifos();
     printf("\n");
 
     // get next process to run
-    fid = fifo_take(&fifo_f1);
-    printf("[SCHEDULER] took from fifo_f1: %d\n", fid);
+    fid = dequeue();
     if(fid < 0) {
-      // f1 empty: try f2
-      fid = fifo_take(&fifo_f2);
-      printf("[SCHEDULER] took from fifo_f2: %d\n", fid);
-      if(fid < 0) {
-        // f2 empty: try f3
-        fid = fifo_take(&fifo_f3);
-        printf("[SCHEDULER] took from fifo_f3: %d\n", fid);
-        if(fid < 0) {
-          // all queues are empty: wait and retry
-          sleep(1);
-          continue;
-        }
-      }
+      // all queues are empty: wait and retry
+      sleep(1);
+      continue;
     }
     running_proc = &processes[fid];
     printf("[SCHEDULER] next process to run:");
@@ -240,11 +264,10 @@ int main() {
       // reduce priority and put process in a lower level queue
       if(running_proc->priority == 1) {
         running_proc->priority = 2;
-        fifo_put(&fifo_f2, fid);
       } else {
         running_proc->priority = 4;
-        fifo_put(&fifo_f3, fid);
       }
+      enqueue(running_proc);
     }
   }
 

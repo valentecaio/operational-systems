@@ -19,13 +19,13 @@ int fifo_empty(Fifo *f) {
 void fifo_print(Fifo *f) {
   Node *p;
   if(fifo_empty(f)){
-    printf("{ empty }");
+    printf("[empty]");
   } else {
-    printf("{");
+    printf("[");
     for(p = f->first; p->next != NULL; p = p->next) {
       printf("%d, ", p->data );
     }
-    printf("%d}", p->data);
+    printf("%d]", p->data);
   }
 }
 
