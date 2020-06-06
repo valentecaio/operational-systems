@@ -36,6 +36,7 @@ static int n_of_processes = 0;
 Process processes[MAX_PROCS];           // the index here is the p.fid
 Process *running_proc;
 int flag_io;
+int flag_end;
 static Fifo fifo_f1, fifo_f2, fifo_f3;
 
 
@@ -126,6 +127,14 @@ void sigusr2_handler(int signo, siginfo_t *si, void *data) {
   enqueue(&processes[fid]);
 }
 
+  // SIGCHLD is used to signal that a process ended
+  void sigchld_handler(int signo, siginfo_t *si, void *data) {
+    int sender = (unsigned long)si->si_pid;
+    printf("[SCHEDULER] [SIGCHLD] received a SIGCHLD from %d\n", sender);
+
+    // block running process
+    flag_end = 1;
+  }
 
 
 /***** pipe handlers *****/
@@ -182,39 +191,44 @@ void *t_pipe_input_main(void *arg) {
 int main() {
   int fid, quantum;
   pthread_t t_pipe_input;
+  struct sigaction sa1, sa2, sa3;
   struct timeval tv1, tv2;
   double runtime;
 
   printf("[SCHEDULER] scheduler pid: %d\n", getpid());
 
-  // init global vars
+  // init queues
   fifo_f1 = fifo_create();
   fifo_f2 = fifo_create();
   fifo_f3 = fifo_create();
 
-  // create named pipes (FIFO)
-  mkfifo(PIPE_INPUT, 0666);
-  mkfifo(PIPE_IO_START, 0666);
-  mkfifo(PIPE_IO_END, 0666);
-
-  // set handler for SIGUSR1
-  struct sigaction sa1, sa2;
+  // set handler for SIGUSR1 -> "IO start signal"
   memset(&sa1, 0, sizeof(sa1));
   sa1.sa_flags = SA_SIGINFO;
   sa1.sa_sigaction = sigusr1_handler;
   sigaction(SIGUSR1, &sa1, 0);
 
-  // set handler for SIGUSR2
+  // set handler for SIGUSR2 -> "IO end signal"
   memset(&sa2, 0, sizeof(sa2));
   sa2.sa_flags = SA_SIGINFO;
   sa2.sa_sigaction = sigusr2_handler;
   sigaction(SIGUSR2, &sa2, 0);
 
+  // set handler for SIGCHLD -> "process finished signal"
+  memset(&sa3, 0, sizeof(sa2));
+  sa3.sa_flags = SA_SIGINFO;
+  sa3.sa_sigaction = sigchld_handler;
+  sigaction(SIGCHLD, &sa3, 0);
+
   // start thread to handle input from interpreter
   pthread_create(&t_pipe_input, NULL, t_pipe_input_main, NULL);
 
   while(1) {
+    // we don't actually need this sleep(1) but it helps seing the logs
+    // without it, logs of scheduler are mixed with logs of child procs
     sleep(1);
+
+    // print all queues everytime we will chose a process to run
     printf("\n");
     print_fifos();
     printf("\n");
@@ -232,6 +246,7 @@ int main() {
 
     // reset flags before running
     flag_io = 0;
+    flag_end = 0;
 
     // run process for quantum time, or until it stops for IO
     quantum = 1000000 * QUANTUM_BASE * running_proc->priority;
@@ -240,10 +255,10 @@ int main() {
     do {
       gettimeofday(&tv2, NULL);
       runtime = (double) (tv2.tv_usec - tv1.tv_usec) + (double) 1000000*(tv2.tv_sec - tv1.tv_sec);
-    } while((runtime < quantum) && !flag_io);
+    } while((runtime < quantum) && !flag_io && !flag_end);
 
     // if this process ended, we will just ignore it from now on
-    if(waitpid(running_proc->pid, NULL, WNOHANG) == running_proc->pid) {
+    if(flag_end) {
       printf("[SCHEDULER] %d ended. Removing it from queues.\n", running_proc->pid);
       continue;
     }
