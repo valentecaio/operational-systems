@@ -8,11 +8,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
-#include <fcntl.h>
 #include <sys/time.h>
-
-#define PIPE_IO_START "./io-start.pipe"   // named pipe to start IO operation
-#define PIPE_IO_END   "./io-end.pipe"     // named pipe to end IO operation
 
 #define QUANTUM_BASE 2  // in seconds
 
@@ -76,13 +72,11 @@ void run_IO(int io_time) {
   int max_time = 1000000*QUANTUM_BASE*io_time; // in ms
   int pid = getpid();
 
+  // warn scheduler about IO start
+  kill(getppid(), SIGUSR1);
+
   printf("[pid %d] started IO\n", getpid());
   gettimeofday(&tv1, NULL);
-
-  // warn scheduler about IO start
-  pipe_fp = open(PIPE_IO_START, O_WRONLY);
-  write(pipe_fp, &pid, sizeof(pid));
-  close(pipe_fp);
 
   do {
     gettimeofday(&tv2, NULL);
@@ -97,10 +91,9 @@ void run_IO(int io_time) {
   } while(runtime_ms < max_time);
   printf("[pid %d] finished IO\n", getpid());
 
-  // warn scheduler about IO end
-  pipe_fp = open(PIPE_IO_END, O_WRONLY);
-  write(pipe_fp, &pid, sizeof(pid));
-  close(pipe_fp);
+  // warn scheduler about IO end and wait to be re-scheduled
+  kill(getppid(), SIGUSR2);
+  pause();
 }
 
 int main() {
@@ -110,6 +103,7 @@ int main() {
   // wait for a SIGUSR2 signal to start
   kill(getpid(), SIGUSR1);
 
-  run_burst(10);
-  // run_IO(2);
+  run_burst(3);
+  run_IO(2);
+  run_burst(3);
 }
