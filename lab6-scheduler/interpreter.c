@@ -3,30 +3,35 @@
 */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 
-#define PIPE_INPUT "./new-process.pipe" // named pipe for creating new processes
-#define INPUT_PATH "./input.txt"        // input of interpreter
-#define BUF_SIZE 255                    // max size of string buffers
+#define PIPE_INPUT "./input.pipe"   // named pipe for creating new processes
+#define BUF_SIZE 255                // max size of string buffers
 
 int str_starts_with(const char *a, const char *b) {
    return (strncmp(a, b, strlen(b)) == 0) ? 1 : 0;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
   int pipe_fd;
   char program_name[BUF_SIZE];
   char line_buffer[BUF_SIZE];
   FILE* input_fp;
 
+  if(argc<2) {
+    printf("Usage: %s <input-file>\n", argv[0]);
+    exit(1);
+  }
+
   // create named pipe (FIFO)
   mkfifo(PIPE_INPUT, 0666);
 
   // handle input file line by line
-  input_fp = fopen(INPUT_PATH, "r");
+  input_fp = fopen(argv[1], "r");
   while(fgets(line_buffer, BUF_SIZE, input_fp)) {
     // we don't need the \n in the end
     strtok(line_buffer, "\n");

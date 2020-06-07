@@ -1,3 +1,0 @@
-exec prog1.exec
-#exec prog2.exec
-#exec prog3.exec
