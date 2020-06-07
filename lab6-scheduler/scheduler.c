@@ -14,11 +14,11 @@
 
 #include "fifo.h"
 
-#define PIPE_INPUT "./new-process.pipe"   // named pipe for incoming new processes
+#define PIPE_INPUT "./input.pipe" // named pipe for incoming new processes
 
 #define BUF_SIZE 255    // max size of string buffers
 #define MAX_PROCS 64    // max number of process this scheduler can handle
-#define QUANTUM_BASE 2  // in seconds
+#define UT 2            // in seconds
 
 typedef struct {
   int fid;              // "FIFO id"  = id of this process in this scheduler
@@ -134,7 +134,7 @@ void sigusr2_handler(int signo, siginfo_t *si, void *data) {
     int sender = (unsigned long)si->si_pid;
     printf("[SCHEDULER] [SIGCHLD] received a SIGCHLD from %d\n", sender);
 
-    // block running process
+    // block running process forever
     flag_end = 1;
   }
 
@@ -155,6 +155,16 @@ void *t_pipe_input_main(void *arg) {
     pipe_fd = open(PIPE_INPUT, O_RDONLY);
     read(pipe_fd, program_name, BUF_SIZE);
     close(pipe_fd);
+
+    // ignore repeated programs
+    int flag_repeated = 0;
+    for(int i=0; i<n_of_processes; i++) {
+      if(strcmp(processes[i].prog, program_name) == 0) {
+        flag_repeated = 1;
+        break;
+      }
+    }
+    if (flag_repeated) continue;
 
     next_fid = n_of_processes;
     n_of_processes++;
@@ -252,7 +262,7 @@ int main() {
     flag_end = 0;
 
     // run process for quantum time, or until it stops for IO or ends
-    quantum = 1000000 * QUANTUM_BASE * p->priority;
+    quantum = 1000000 * UT * p->priority;
     kill(p->pid, SIGUSR2);
     gettimeofday(&tv1, NULL);
     do {
