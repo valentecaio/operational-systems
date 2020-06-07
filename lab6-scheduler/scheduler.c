@@ -5,13 +5,11 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <sys/time.h>     // gettimeofday
+#include <fcntl.h>        // open, close
 #include <pthread.h>      // pthread, pthread_create
+#include <signal.h>       // sigaction, kill
+#include <sys/stat.h>     // mkfifo
 #include <sys/time.h>     // gettimeofday
-#include <signal.h>       // signal, kill
 #include <sys/wait.h>     // WNOHANG
 
 #include "fifo.h"
@@ -19,34 +17,37 @@
 #define PIPE_INPUT "./new-process.pipe"   // named pipe for incoming new processes
 
 #define BUF_SIZE 255    // max size of string buffers
-#define MAX_PROCS 50    // max number of process this scheduler can handle
+#define MAX_PROCS 64    // max number of process this scheduler can handle
 #define QUANTUM_BASE 2  // in seconds
 
 typedef struct {
-  int fid;              // "FIFO id" = id of this process in the fifo queues
-  int pid;              // unix pid
+  int fid;              // "FIFO id"  = id of this process in this scheduler
+  int pid;              // "unix pid" = id of this process in the OS
   int priority;         // 1 for fifo_f1, 2 for fifo_f2, 4 for fifo_f3
   char prog[BUF_SIZE];  // path of the file containing the code this process may run
 } Process;
 
 
+
 /***** scheduler state *****/
 
-static int n_of_processes = 0;
-Process processes[MAX_PROCS];           // the index here is the p.fid
-Process *running_proc;
-int flag_io;
-int flag_end;
-static Fifo fifo_f1, fifo_f2, fifo_f3;
+Fifo fifo_f1, fifo_f2, fifo_f3; // integer fifos
+Process processes[MAX_PROCS];   // the index here is the p.fid
+int n_of_processes = 0;         // the length of 'processes' list
+
+int flag_io;  // flag "the running process started an IO operation"
+int flag_end; // flag "the running process ended"
 
 
+
+/***** auxiliary functions *****/
 
 void print_proc(Process *p) {
   printf("  {fid: %d, pid: %d, prog: %s, priority: %d},\n",
         p->fid, p->pid, p->prog, p->priority);
 }
 
-// not thread-safe, used in tests
+// not thread-safe
 void print_processes() {
   printf("Processes = [\n");
   for(int i=0; i < n_of_processes; i++) {
@@ -194,8 +195,10 @@ int main() {
   struct sigaction sa1, sa2, sa3;
   struct timeval tv1, tv2;
   double runtime;
+  Process *p;
 
-  printf("[SCHEDULER] scheduler pid: %d\n", getpid());
+
+  printf("[SCHEDULER] started scheduler with pid %d\n", getpid());
 
   // init queues
   fifo_f1 = fifo_create();
@@ -224,11 +227,11 @@ int main() {
   pthread_create(&t_pipe_input, NULL, t_pipe_input_main, NULL);
 
   while(1) {
-    // we don't actually need this sleep(1) but it helps seing the logs
-    // without it, logs of scheduler are mixed with logs of child procs
+    // we don't actually need this sleep(1) but it helps seeing the logs
+    // without it, logs of the scheduler are mixed with logs of child procs
     sleep(1);
 
-    // print all queues everytime we will chose a process to run
+    // print all queues every time we will choose a process to run
     printf("\n");
     print_fifos();
     printf("\n");
@@ -240,17 +243,17 @@ int main() {
       sleep(1);
       continue;
     }
-    running_proc = &processes[fid];
+    p = &processes[fid];
     printf("[SCHEDULER] next process to run:");
-    print_proc(running_proc);
+    print_proc(p);
 
     // reset flags before running
     flag_io = 0;
     flag_end = 0;
 
     // run process for quantum time, or until it stops for IO
-    quantum = 1000000 * QUANTUM_BASE * running_proc->priority;
-    kill(running_proc->pid, SIGUSR2);
+    quantum = 1000000 * QUANTUM_BASE * p->priority;
+    kill(p->pid, SIGUSR2);
     gettimeofday(&tv1, NULL);
     do {
       gettimeofday(&tv2, NULL);
@@ -259,31 +262,31 @@ int main() {
 
     // if this process ended, we will just ignore it from now on
     if(flag_end) {
-      printf("[SCHEDULER] %d ended. Removing it from queues.\n", running_proc->pid);
+      printf("[SCHEDULER] %d ended. Removing it from queues.\n", p->pid);
       continue;
     }
 
     if(flag_io){
-      printf("[SCHEDULER] %d is running an IO operation. CPU is free.\n", running_proc->pid);
+      printf("[SCHEDULER] %d is running an IO operation. CPU is free.\n", p->pid);
       // increase priority but keep process out of any queue
       // it will join a queue when the IO finishes (SIGUSR2)
-      if(running_proc->priority == 4) {
-        running_proc->priority = 2;
+      if(p->priority == 4) {
+        p->priority = 2;
       } else {
-        running_proc->priority = 1;
+        p->priority = 1;
       }
     } else {
       // stop process
-      printf("[SCHEDULER] %d achieved the quantum. Stopping it.\n", running_proc->pid);
-      kill(running_proc->pid, SIGUSR1);
+      printf("[SCHEDULER] %d achieved the quantum. Stopping it.\n", p->pid);
+      kill(p->pid, SIGUSR1);
 
       // reduce priority and put process in a lower level queue
-      if(running_proc->priority == 1) {
-        running_proc->priority = 2;
+      if(p->priority == 1) {
+        p->priority = 2;
       } else {
-        running_proc->priority = 4;
+        p->priority = 4;
       }
-      enqueue(running_proc);
+      enqueue(p);
     }
   }
 
