@@ -1,7 +1,7 @@
 /*
   gcc prog1.c -o prog1; gcc prog2.c -o prog2; gcc prog3.c -o prog3; gcc prog4.c -o prog4;
 
-  prog1 does: 5,4 = 5 UT burst, 3 UT IO, 4 UT burst
+  prog4 does: 5,3,4 = 5 UT burst, 3 UT IO, 3 UT burst, 3 UT IO, 4 UT burst
 */
 
 #include <stdio.h>
@@ -106,6 +106,8 @@ int main() {
   kill(mypid, SIGUSR1);
 
   run_burst(5);
+  run_IO(3);
+  run_burst(3);
   run_IO(3);
   run_burst(4);
 }
