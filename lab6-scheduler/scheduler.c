@@ -68,6 +68,7 @@ void print_fifos() {
 }
 
 // get the higher priority process of all 3 queues
+// returns -1 if all queues are empty
 int dequeue() {
   // try to get from fifo f1
   int fid = fifo_take(&fifo_f1);
@@ -197,7 +198,6 @@ int main() {
   double runtime;
   Process *p;
 
-
   printf("[SCHEDULER] started scheduler with pid %d\n", getpid());
 
   // init queues
@@ -251,7 +251,7 @@ int main() {
     flag_io = 0;
     flag_end = 0;
 
-    // run process for quantum time, or until it stops for IO
+    // run process for quantum time, or until it stops for IO or ends
     quantum = 1000000 * QUANTUM_BASE * p->priority;
     kill(p->pid, SIGUSR2);
     gettimeofday(&tv1, NULL);
@@ -260,9 +260,9 @@ int main() {
       runtime = (double) (tv2.tv_usec - tv1.tv_usec) + (double) 1000000*(tv2.tv_sec - tv1.tv_sec);
     } while((runtime < quantum) && !flag_io && !flag_end);
 
-    // if this process ended, we will just ignore it from now on
     if(flag_end) {
       printf("[SCHEDULER] %d ended. Removing it from queues.\n", p->pid);
+      // if this process ended, we will just ignore it from now on
       continue;
     }
 
@@ -276,8 +276,8 @@ int main() {
         p->priority = 1;
       }
     } else {
-      // stop process
       printf("[SCHEDULER] %d achieved the quantum. Stopping it.\n", p->pid);
+      // stop process
       kill(p->pid, SIGUSR1);
 
       // reduce priority and put process in a lower level queue
