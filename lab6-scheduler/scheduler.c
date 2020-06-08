@@ -194,7 +194,7 @@ void *t_pipe_input_main(void *arg) {
     print_proc(&processes[next_fid]);
 
     print_processes();
-    print_fifos();
+    // print_fifos();
   }
   return NULL;
 }
@@ -278,12 +278,17 @@ int main() {
 
     if(flag_io){
       printf("[SCHEDULER] %d is running an IO operation. CPU is free.\n", p->pid);
-      // increase priority but keep process out of any queue
-      // it will join a queue when the IO finishes (SIGUSR2)
-      if(p->priority == 4) {
-        p->priority = 2;
-      } else {
-        p->priority = 1;
+
+      // we only increase priority if the process left at least half UT of quantum unused
+      // otherwise, we consider that it used "exactly" the whole quantum, without blowing it
+      if( ((int)runtime) < (quantum-1000000) ) {
+        // increase priority but keep process out of any queue
+        // it will join a queue when the IO finishes (SIGUSR2)
+        if(p->priority == 4) {
+          p->priority = 2;
+        } else {
+          p->priority = 1;
+        }
       }
     } else {
       printf("[SCHEDULER] %d achieved the quantum. Stopping it.\n", p->pid);

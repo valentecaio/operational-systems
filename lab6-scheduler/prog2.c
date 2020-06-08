@@ -43,7 +43,7 @@ void run_burst(int burst_size) {
   struct timeval time_burst_start, time_now;
   double runtime_ms = 0;
   int runtime_ut = 0;
-  int max_time = 1000000*UT*burst_size; // in ms
+  int max_time = 1000000*(UT*burst_size-1); // in ms
 
   // reset time counters
   stoptime = 0;
